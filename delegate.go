@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -65,12 +66,19 @@ func createAddDelegateCmd() *cobra.Command {
 				return fmt.Errorf("failed to connect to the Ethereum client: %v", err)
 			}
 
-			chainID, err := getChainID(client)
+			chainID, err := client.ChainID(context.Background())
 			if err != nil {
 				return fmt.Errorf("failed to get chain ID: %v", err)
 			}
 
-			err = AddDelegate(safe, delegate, label, chainID, key)
+			if safeAPIURL == "" {
+				safeAPIURL = fmt.Sprintf("https://safe-client.safe.global/v2/chains/%d/delegates/", chainID.Int64())
+				fmt.Println("safe-api is not set, using default: ", safeAPIURL)
+			} else {
+				fmt.Println("Using custom safe-api URL: ", safeAPIURL)
+			}
+
+			err = AddDelegate(safe, delegate, label, chainID, key, safeAPIURL)
 			if err != nil {
 				cmd.Printf("Error adding delegate: %v\n", err)
 				return fmt.Errorf("error adding delegate: %v", err)
@@ -112,6 +120,7 @@ func createListDelegatesCmd() *cobra.Command {
 				return fmt.Errorf("invalid safe address: %s", safe)
 			}
 			return nil
+
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := ethclient.Dial(rpcURL)
@@ -119,15 +128,18 @@ func createListDelegatesCmd() *cobra.Command {
 				cmd.PrintErrf("Error connecting to RPC: %v\n", err)
 				return fmt.Errorf("error connecting to RPC: %v", err)
 			}
-			chainID, err := getChainID(client)
+			chainID, err := client.ChainID(context.Background())
 			if err != nil {
 				cmd.PrintErrf("Error retrieving chain ID: %v\n", err)
 				return fmt.Errorf("error retrieving chain ID: %v", err)
 			}
 
-			apiURL := getSafeAPIURL(safeAPIURL)
+			if safeAPIURL == "" {
+				safeAPIURL = fmt.Sprintf("https://safe-client.safe.global/v2/chains/%d/delegates/", chainID.Int64())
+				fmt.Println("safe-api is not set, using default: ", safeAPIURL)
+			}
 
-			delegates, err := GetDelegates(safe, delegate, delegator, label, limit, offset, chainID, apiURL)
+			delegates, err := GetDelegates(safe, delegate, delegator, label, limit, offset, chainID, safeAPIURL)
 			if err != nil {
 				return fmt.Errorf("error retrieving delegates: %v", err)
 			}
@@ -195,12 +207,17 @@ func createRemoveDelegateCmd() *cobra.Command {
 				return fmt.Errorf("failed to connect to the Ethereum client: %v", err)
 			}
 
-			chainID, err := getChainID(client)
+			chainID, err := client.ChainID(context.Background())
 			if err != nil {
 				return fmt.Errorf("failed to get chain ID: %v", err)
 			}
 
-			err = RemoveDelegate(checksumSafe, checksumDelegate, chainID, key)
+			if safeAPIURL == "" {
+				safeAPIURL = fmt.Sprintf("https://safe-client.safe.global/v2/chains/%d/delegates", chainID.Int64())
+				fmt.Println("safe-api is not set, using default: ", safeAPIURL)
+			}
+
+			err = RemoveDelegate(checksumSafe, checksumDelegate, chainID, key, safeAPIURL)
 			if err != nil {
 				return fmt.Errorf("error removing delegate: %v", err)
 			}

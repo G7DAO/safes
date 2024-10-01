@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -17,23 +15,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 	"golang.org/x/crypto/ssh/terminal"
 )
-
-const (
-	apiBaseURLTemplate = "https://safe-client.safe.global/v2/chains/%d"
-)
-
-type DelegateRequest struct {
-	Safe     string `json:"safe"`
-	Delegate string `json:"delegate"`
-	Label    string `json:"label"`
-}
 
 type DelegateResponse struct {
 	Safe      string `json:"safe"`
@@ -42,22 +28,7 @@ type DelegateResponse struct {
 	Label     string `json:"label"`
 }
 
-type DelegateAddRequest struct {
-	Safe      string `json:"safe"`
-	Delegate  string `json:"delegate"`
-	Delegator string `json:"delegator"`
-	Signature string `json:"signature"`
-	Label     string `json:"label"`
-}
-
-func getAPIBaseURL(chainID *big.Int) string {
-	return fmt.Sprintf("https://safe-client.safe.global/v2/chains/%d", chainID.Int64())
-}
-
-func AddDelegate(safeAddress, delegateAddress, label string, chainID *big.Int, key *keystore.Key) error {
-	apiBaseURL := getAPIBaseURL(chainID)
-	url := fmt.Sprintf("%s/delegates/", apiBaseURL)
-
+func AddDelegate(safeAddress, delegateAddress, label string, chainID *big.Int, key *keystore.Key, apiURL string) error {
 	// Generate TOTP (Time-based One-Time Password)
 	totp := big.NewInt(time.Now().Unix() / 3600)
 
@@ -122,7 +93,7 @@ func AddDelegate(safeAddress, delegateAddress, label string, chainID *big.Int, k
 		return fmt.Errorf("error marshaling payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -146,29 +117,8 @@ func AddDelegate(safeAddress, delegateAddress, label string, chainID *big.Int, k
 	return nil
 }
 
-func SignTypedData(typedData apitypes.TypedData, key *keystore.Key) (string, error) {
-	domainSeparator, err := typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
-	if err != nil {
-		return "", err
-	}
-
-	typedDataHash, err := typedData.HashStruct(typedData.PrimaryType, typedData.Message)
-	if err != nil {
-		return "", err
-	}
-
-	rawData := []byte(fmt.Sprintf("\x19\x01%s%s", domainSeparator, typedDataHash))
-	signature, err := crypto.Sign(crypto.Keccak256(rawData), key.PrivateKey)
-	if err != nil {
-		return "", err
-	}
-
-	return hexutil.Encode(signature), nil
-}
-
 func GetDelegates(safe, delegate, delegator, label string, limit, offset int, chainID *big.Int, apiURL string) ([]DelegateResponse, error) {
-	apiBaseURL := getAPIBaseURL(chainID)
-	baseURL, err := url.Parse(fmt.Sprintf("%s/delegates/", apiBaseURL))
+	baseURL, err := url.Parse(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing URL: %w", err)
 	}
@@ -203,7 +153,7 @@ func GetDelegates(safe, delegate, delegator, label string, limit, offset int, ch
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
@@ -222,32 +172,7 @@ func GetDelegates(safe, delegate, delegator, label string, limit, offset int, ch
 	return response.Results, nil
 }
 
-func KeyFromFile(keystoreFile string, password string) (*keystore.Key, error) {
-	var emptyKey *keystore.Key
-	keystoreContent, readErr := ioutil.ReadFile(keystoreFile)
-	if readErr != nil {
-		return emptyKey, readErr
-	}
-
-	// If password is "", prompt user for password.
-	if password == "" {
-		fmt.Printf("Please provide a password for keystore (%s): ", keystoreFile)
-		passwordRaw, inputErr := terminal.ReadPassword(int(os.Stdin.Fd()))
-		if inputErr != nil {
-			return emptyKey, fmt.Errorf("error reading password: %s", inputErr.Error())
-		}
-		fmt.Print("\n")
-		password = string(passwordRaw)
-	}
-
-	key, err := keystore.DecryptKey(keystoreContent, password)
-	return key, err
-}
-
-func RemoveDelegate(safeAddress, delegateAddress string, chainID *big.Int, key *keystore.Key) error {
-	apiBaseURL := getAPIBaseURL(chainID)
-	fullUrl := fmt.Sprintf("%s/delegates/%s/", apiBaseURL, common.HexToAddress(delegateAddress).Hex())
-
+func RemoveDelegate(safeAddress, delegateAddress string, chainID *big.Int, key *keystore.Key, apiURL string) error {
 	// Generate TOTP (Time-based One-Time Password)
 	totp := big.NewInt(time.Now().Unix() / 3600)
 
@@ -310,7 +235,7 @@ func RemoveDelegate(safeAddress, delegateAddress string, chainID *big.Int, key *
 		return fmt.Errorf("error marshaling payload: %w", err)
 	}
 
-	req, err := http.NewRequest("DELETE", fullUrl, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("DELETE", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -335,15 +260,24 @@ func RemoveDelegate(safeAddress, delegateAddress string, chainID *big.Int, key *
 	return nil
 }
 
-func getChainID(client *ethclient.Client) (*big.Int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return client.ChainID(ctx)
-}
-
-func getSafeAPIURL(override string) string {
-	if override != "" {
-		return override
+func KeyFromFile(keystoreFile string, password string) (*keystore.Key, error) {
+	var emptyKey *keystore.Key
+	keystoreContent, readErr := os.ReadFile(keystoreFile)
+	if readErr != nil {
+		return emptyKey, readErr
 	}
-	return "https://safe-client.safe.global/v2/chains/%d"
+
+	// If password is "", prompt user for password.
+	if password == "" {
+		fmt.Printf("Please provide a password for keystore (%s): ", keystoreFile)
+		passwordRaw, inputErr := terminal.ReadPassword(int(os.Stdin.Fd()))
+		if inputErr != nil {
+			return emptyKey, fmt.Errorf("error reading password: %s", inputErr.Error())
+		}
+		fmt.Print("\n")
+		password = string(passwordRaw)
+	}
+
+	key, err := keystore.DecryptKey(keystoreContent, password)
+	return key, err
 }
