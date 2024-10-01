@@ -37,11 +37,24 @@ func createAddDelegateCmd() *cobra.Command {
 	addDelegateCmd := &cobra.Command{
 		Use:   "add",
 		Short: "Add a new delegate to a Safe",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if !common.IsHexAddress(safe) {
+				return fmt.Errorf("invalid safe address: %s", safe)
+			}
+			if !common.IsHexAddress(delegate) {
+				return fmt.Errorf("invalid delegate address: %s", delegate)
+			}
+			if label == "" {
+				return fmt.Errorf("label is required")
+			}
+
 			if keyfile == "" {
 				return fmt.Errorf("--keyfile not specified (this should be a path to an Ethereum account keystore file)")
 			}
 
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
 			key, keyErr := KeyFromFile(keyfile, password)
 			if keyErr != nil {
 				return keyErr
@@ -94,33 +107,38 @@ func createListDelegatesCmd() *cobra.Command {
 	listDelegatesCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List delegates for a Safe",
-		Run: func(cmd *cobra.Command, args []string) {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if !common.IsHexAddress(safe) {
+				return fmt.Errorf("invalid safe address: %s", safe)
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := ethclient.Dial(rpcURL)
 			if err != nil {
 				cmd.PrintErrf("Error connecting to RPC: %v\n", err)
-				return
+				return fmt.Errorf("error connecting to RPC: %v", err)
 			}
 			chainID, err := getChainID(client)
 			if err != nil {
 				cmd.PrintErrf("Error retrieving chain ID: %v\n", err)
-				return
+				return fmt.Errorf("error retrieving chain ID: %v", err)
 			}
 
 			apiURL := getSafeAPIURL(safeAPIURL)
 
 			delegates, err := GetDelegates(safe, delegate, delegator, label, limit, offset, chainID, apiURL)
 			if err != nil {
-				cmd.PrintErrf("Error retrieving delegates: %v\n", err)
-				return
+				return fmt.Errorf("error retrieving delegates: %v", err)
 			}
 			if len(delegates) == 0 {
-				cmd.Println("No delegates found.")
+				return fmt.Errorf("no delegates found")
 			} else {
-				cmd.Println("Delegates:")
 				for _, d := range delegates {
 					cmd.Printf("Safe: %s, Delegate: %s, Delegator: %s, Label: %s\n", d.Safe, d.Delegate, d.Delegator, d.Label)
 				}
 			}
+			return nil
 		},
 	}
 
@@ -149,7 +167,7 @@ func createRemoveDelegateCmd() *cobra.Command {
 	removeDelegateCmd := &cobra.Command{
 		Use:   "remove",
 		Short: "Remove a delegate",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if !common.IsHexAddress(safe) {
 				return fmt.Errorf("invalid safe address: %s", safe)
 			}
@@ -157,12 +175,15 @@ func createRemoveDelegateCmd() *cobra.Command {
 				return fmt.Errorf("invalid delegate address: %s", delegate)
 			}
 
-			checksumSafe := common.HexToAddress(safe).Hex()
-			checksumDelegate := common.HexToAddress(delegate).Hex()
-
 			if keyfile == "" {
 				return fmt.Errorf("--keyfile not specified (this should be a path to an Ethereum account keystore file)")
 			}
+
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			checksumSafe := common.HexToAddress(safe).Hex()
+			checksumDelegate := common.HexToAddress(delegate).Hex()
 
 			key, keyErr := KeyFromFile(keyfile, password)
 			if keyErr != nil {
