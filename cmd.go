@@ -38,7 +38,9 @@ func CreateRootCommand() *cobra.Command {
 	factoryCmd := SafeProxyFactory.CreateSafeProxyFactoryCommand()
 	factoryCmd.Use = "factory"
 
-	rootCmd.AddCommand(completionCmd, versionCmd, singletonCmd, singletonL2Cmd, proxyCmd, factoryCmd)
+	delegateCmd := CreateDelegateCmd()
+
+	rootCmd.AddCommand(completionCmd, versionCmd, singletonCmd, singletonL2Cmd, proxyCmd, factoryCmd, delegateCmd)
 
 	// By default, cobra Command objects write to stderr. We have to forcibly set them to output to
 	// stdout.
