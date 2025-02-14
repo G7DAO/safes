@@ -5,6 +5,11 @@ import (
 	"os"
 )
 
+var (
+	rpcURL     string
+	safeAPIURL string
+)
+
 func main() {
 	command := CreateRootCommand()
 	err := command.Execute()
