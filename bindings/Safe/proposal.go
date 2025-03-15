@@ -2,12 +2,14 @@ package Safe
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -81,6 +83,14 @@ func ApproveProposal(safeAddress, proposalID, keyfile, password, rpcURL, nonce, 
 		return fmt.Errorf("failed to create Ethereum client: %v", err)
 	}
 
+	// Fetch the chain ID
+	chainIDCtx, cancelChainIDCtx := context.WithTimeout(context.Background(), time.Second*10) // 10-second timeout
+	defer cancelChainIDCtx()
+	chainID, err := client.ChainID(chainIDCtx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch chain ID: %v", err)
+	}
+
 	// Load the Safe contract
 	safeContract, err := NewSafe(common.HexToAddress(safeAddress), client)
 	if err != nil {
@@ -99,8 +109,8 @@ func ApproveProposal(safeAddress, proposalID, keyfile, password, rpcURL, nonce, 
 		return fmt.Errorf("failed to decrypt keyfile: %v", err)
 	}
 
-	// Create a transactor
-	auth, err := bind.NewTransactorWithChainID(bytes.NewReader(keyJSON), password, big.NewInt(1)) // Replace `1` with the correct chain ID
+	// Create a transactor with the fetched chain ID
+	auth, err := bind.NewTransactorWithChainID(bytes.NewReader(keyJSON), password, chainID)
 	if err != nil {
 		return fmt.Errorf("failed to create transactor: %v", err)
 	}
