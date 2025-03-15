@@ -40,7 +40,11 @@ func CreateRootCommand() *cobra.Command {
 
 	delegateCmd := CreateDelegateCmd()
 
-	rootCmd.AddCommand(completionCmd, versionCmd, singletonCmd, singletonL2Cmd, proxyCmd, factoryCmd, delegateCmd)
+	// Add the new approval command
+	approveProposalCmd := Safe.CreateApproveProposalCommand()
+	approveProposalCmd.Use = "approve-proposal"
+
+	rootCmd.AddCommand(completionCmd, versionCmd, singletonCmd, singletonL2Cmd, proxyCmd, factoryCmd, delegateCmd, approveProposalCmd)
 
 	// By default, cobra Command objects write to stderr. We have to forcibly set them to output to
 	// stdout.
