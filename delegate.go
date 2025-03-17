@@ -9,9 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var rpcURL string
-var safeAPIURL string
-
 func CreateDelegateCmd() *cobra.Command {
 	delegateCmd := &cobra.Command{
 		Use:   "delegate",
