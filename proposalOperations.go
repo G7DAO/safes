@@ -1,91 +1,75 @@
 package main
 
 import (
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
-type ProposalResponse struct {
-	Type         string       `json:"type"`
-	Transaction  *Transaction `json:"transaction,omitempty"`  // Only present when type is "TRANSACTION"
-	Timestamp    int64        `json:"timestamp,omitempty"`    // Only present when type is "DATE_LABEL"
-	ConflictType string       `json:"conflictType,omitempty"` // Only present when type is "TRANSACTION"
-}
-
-type Transaction struct {
-	TxInfo        TxInfo        `json:"txInfo"`
-	ID            string        `json:"id"`
-	TxHash        string        `json:"txHash"`
-	Timestamp     int64         `json:"timestamp"`
-	TxStatus      string        `json:"txStatus"`
-	ExecutionInfo ExecutionInfo `json:"executionInfo"`
-	SafeAppInfo   SafeAppInfo   `json:"safeAppInfo"`
-}
-
-type TxInfo struct {
-	Type             string `json:"type"`
-	HumanDescription string `json:"humanDescription"`
-	Creator          Party  `json:"creator"`
-	TransactionHash  string `json:"transactionHash"`
-	Implementation   Party  `json:"implementation"`
-	Factory          Party  `json:"factory"`
-	SaltNonce        string `json:"saltNonce"`
-}
-
-type Party struct {
-	Value   string `json:"value"`
-	Name    string `json:"name"`
-	LogoUri string `json:"logoUri"`
-}
-
-type ExecutionInfo struct {
-	Type                   string  `json:"type"`
-	Nonce                  int     `json:"nonce"`
-	ConfirmationsRequired  int     `json:"confirmationsRequired"`
-	ConfirmationsSubmitted int     `json:"confirmationsSubmitted"`
-	MissingSigners         []Party `json:"missingSigners"`
-}
-
-type SafeAppInfo struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	LogoUri string `json:"logoUri"`
-}
-
-func GetProposals(apiURL string) ([]ProposalResponse, error) {
-	baseURL, err := url.Parse(apiURL)
+func SignAndApproveProposal(hash string, key *keystore.Key, apiURL string) error {
+	hashBytes := common.HexToHash(hash).Bytes()
+	signature, err := crypto.Sign(hashBytes, key.PrivateKey)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing URL: %w", err)
+		return fmt.Errorf("failed to sign SafeTxHash: %w", err)
 	}
-	fmt.Println(baseURL.String())
-	resp, err := http.Get(baseURL.String())
+
+	signature[64] += 27
+	senderSignature := "0x" + common.Bytes2Hex(signature)
+
+	payload := map[string]string{
+		"signature": senderSignature,
+	}
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
+		return fmt.Errorf("failed to marshal JSON payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
+		return fmt.Errorf("error reading response body: %w", err)
 	}
 
-	var response struct {
-		Count    int                `json:"count"`
-		Next     *string            `json:"next"`
-		Previous *string            `json:"previous"`
-		Results  []ProposalResponse `json:"results"`
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP error! status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	return nil
+}
+
+func IsValidHex(s string) bool {
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		s = s[2:]
 	}
-	return response.Results, nil
+
+	if len(s) == 0 {
+		return false
+	}
+
+	if len(s)%2 != 0 {
+		return false
+	}
+
+	_, err := hex.DecodeString(s)
+	return err == nil
 }
